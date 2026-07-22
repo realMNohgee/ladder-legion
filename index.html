@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ladder Legion</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0a;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+    font-family: 'Press Start 2P', monospace;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+
+  #game-wrapper {
+    position: relative;
+  }
+
+  canvas {
+    display: block;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    border: 4px solid #333;
+    box-shadow: 0 0 40px rgba(0, 255, 100, 0.15);
+  }
+
+  #terminal-overlay {
+    display: none;
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: #0c0c0c;
+    color: #00ff41;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 10px;
+    line-height: 1.8;
+    padding: 40px 24px;
+    flex-direction: column;
+    justify-content: center;
+    align-items: stretch;
+    overflow-y: auto;
+    border: 4px solid #00ff41;
+    text-shadow: 0 0 8px rgba(0, 255, 65, 0.5);
+  }
+
+  #terminal-overlay.visible { display: flex; }
+
+  #terminal-overlay .header {
+    font-size: 14px;
+    text-align: center;
+    margin-bottom: 16px;
+    color: #00ff41;
+  }
+
+  #terminal-overlay .cursor {
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+
+  #terminal-overlay .line {
+    margin-bottom: 6px;
+  }
+
+  #terminal-overlay .prompt { color: #00ff41; }
+  #terminal-overlay .output { color: #00cc33; }
+  #terminal-overlay .highlight { color: #33ff66; }
+  #terminal-overlay .dim { color: #006622; }
+  #terminal-overlay .warn { color: #ffcc00; }
+  #terminal-overlay .error { color: #ff4444; }
+
+  #terminal-overlay a {
+    color: #00ff41;
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  #terminal-overlay a:hover {
+    color: #33ff66;
+    text-decoration: underline;
+  }
+
+  #terminal-overlay .links {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px dashed #004d1a;
+  }
+
+  #terminal-overlay .footer {
+    margin-top: 20px;
+    font-size: 7px;
+    color: #005c1a;
+    text-align: center;
+  }
+
+  #terminal-overlay .divider {
+    color: #004d1a;
+    margin: 8px 0;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div id="game-wrapper">
+  <canvas id="game"></canvas>
+  <div id="terminal-overlay">
+    <div class="header">┌─────────────────────────────┐</div>
+    <div class="header" id="end-title">│      GAME OVER              │</div>
+    <div class="header">└─────────────────────────────┘</div>
+    <div class="line"><span class="dim">$</span> <span class="output">cat /var/log/ladder-legion/final.txt</span></div>
+    <div class="line">&nbsp;</div>
+    <div class="line"><span class="prompt">SCORE:</span> <span class="highlight" id="end-score">0</span></div>
+    <div class="line"><span class="prompt">RANK:</span> <span class="highlight" id="end-rank">BARREL BAIT</span></div>
+    <div class="line"><span class="prompt">BARRELS DODGED:</span> <span class="output" id="end-barrels">0</span></div>
+    <div class="line"><span class="prompt">LEVELS CLEARED:</span> <span class="output" id="end-levels">0</span></div>
+    <div class="line">&nbsp;</div>
+    <div class="line"><span class="dim">$</span> <span class="output">cat /home/climber/links.txt</span></div>
+    <div class="links">
+      <div class="line"><span class="dim">├─</span> <a href="https://github.com/realMNohgee" target="_blank">github.com/realMNohgee</a></div>
+      <div class="line"><span class="dim">├─</span> <a href="https://hermtica.com" target="_blank">hermtica.com</a></div>
+      <div class="line"><span class="dim">├─</span> <a href="https://realMNohgee.github.io/resume" target="_blank">Resume</a></div>
+      <div class="line"><span class="dim">└─</span> <a href="mailto:clund25@gmail.com">clund25@gmail.com</a></div>
+    </div>
+    <div class="divider">──────────────────────────────────</div>
+    <div class="line" style="text-align:center"><span class="dim">$</span> <span class="output">./retry.sh</span></div>
+    <div class="line" style="text-align:center"><span class="dim">Press ENTER to play again</span><span class="cursor">_</span></div>
+    <div class="footer">Built by Chris Lund — Founder, Hermtica</div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+
+  // --- Retro resolution ---
+  const W = 480;
+  const H = 640;
+  canvas.width = W;
+  canvas.height = H;
+
+  // --- Scale canvas to fit screen ---
+  function resizeCanvas() {
+    const scale = Math.min(
+      (window.innerWidth - 40) / W,
+      (window.innerHeight - 40) / H,
+      2
+    );
+    canvas.style.width = (W * scale) + 'px';
+    canvas.style.height = (H * scale) + 'px';
+  }
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+
+  // --- Game State ---
+  const STATE = { TITLE: 0, PLAYING: 1, DYING: 2, WIN: 3, GAMEOVER: 4 };
+  let state = STATE.TITLE;
+  let score = 0;
+  let lives = 3;
+  let level = 1;
+  let barrelsDodged = 0;
+  let levelsCleared = 0;
+
+  // --- Input ---
+  const keys = {};
+  window.addEventListener('keydown', e => {
+    keys[e.key] = true;
+    keys[e.code] = true;
+    e.preventDefault();
+  });
+  window.addEventListener('keyup', e => {
+    keys[e.key] = false;
+    keys[e.code] = false;
+    e.preventDefault();
+  });
+
+  // --- Player ---
+  const player = {
+    x: 60, y: 0,
+    w: 22, h: 30,
+    vx: 0, vy: 0,
+    speed: 2.2,
+    jumpPower: -7,
+    grounded: false,
+    onLadder: false,
+    facing: 1, // 1=right, -1=left
+    animFrame: 0,
+    animTimer: 0,
+    deathTimer: 0,
+    invincible: 0,
+  };
+
+  // --- Platforms ---
+  // y positions for each platform floor
+  const PLATFORM_Y = [580, 440, 300, 160];
+  const PLATFORM_H = 16;
+
+  // --- Ladders ---
+  // Each ladder: { x, yTop, yBot }
+  function getLadders() {
+    return [
+      // Between bottom (580) and platform 2 (440)
+      { x: 40, yTop: PLATFORM_Y[1], yBot: PLATFORM_Y[0] },
+      { x: 200, yTop: PLATFORM_Y[1], yBot: PLATFORM_Y[0] },
+      { x: 380, yTop: PLATFORM_Y[1], yBot: PLATFORM_Y[0] },
+      // Between platform 2 (440) and platform 3 (300)
+      { x: 120, yTop: PLATFORM_Y[2], yBot: PLATFORM_Y[1] },
+      { x: 320, yTop: PLATFORM_Y[2], yBot: PLATFORM_Y[1] },
+      // Between platform 3 (300) and platform 4 (160)
+      { x: 60, yTop: PLATFORM_Y[3], yBot: PLATFORM_Y[2] },
+      { x: 250, yTop: PLATFORM_Y[3], yBot: PLATFORM_Y[2] },
+      { x: 400, yTop: PLATFORM_Y[3], yBot: PLATFORM_Y[2] },
+      // Top goal ladder (platform 4 to top)
+      { x: 230, yTop: 60, yBot: PLATFORM_Y[3] },
+    ];
+  }
+  let ladders = getLadders();
+
+  // --- Barrels ---
+  let barrels = [];
+  let barrelSpawnTimer = 0;
+  const BARREL_SPAWN_INTERVAL = 90; // frames between spawns
+  const BARREL_SPEED = 1.5;
+  const BARREL_R = 10;
+
+  function spawnBarrel() {
+    const topPlatform = PLATFORM_Y[3];
+    barrels.push({
+      x: W - 30,
+      y: topPlatform - BARREL_R,
+      vx: -(BARREL_SPEED + Math.random() * 1.5),
+      vy: 0,
+      onPlatform: 3, // platform index
+      r: BARREL_R,
+    });
+  }
+
+  // --- Death animation particles ---
+  let deathParticles = [];
+
+  function startDeath() {
+    state = STATE.DYING;
+    player.deathTimer = 90;
+    deathParticles = [];
+    for (let i = 0; i < 20; i++) {
+      deathParticles.push({
+        x: player.x + player.w / 2,
+        y: player.y + player.h / 2,
+        vx: (Math.random() - 0.5) * 6,
+        vy: (Math.random() - 0.5) * 6 - 3,
+        life: 40 + Math.random() * 20,
+        color: Math.random() > 0.5 ? '#ff4444' : '#ff8844',
+      });
+    }
+  }
+
+  // --- Reset player to start ---
+  function resetPlayer() {
+    player.x = 60;
+    player.y = PLATFORM_Y[0] - player.h;
+    player.vx = 0;
+    player.vy = 0;
+    player.grounded = false;
+    player.onLadder = false;
+    player.invincible = 60; // brief invincibility after respawn
+  }
+
+  // --- Reset level ---
+  function resetLevel() {
+    barrels = [];
+    barrelSpawnTimer = 60; // delay before first barrel
+    deathParticles = [];
+    ladders = getLadders();
+    resetPlayer();
+    state = STATE.PLAYING;
+  }
+
+  // --- Full game reset ---
+  function resetGame() {
+    score = 0;
+    lives = 3;
+    level = 1;
+    barrelsDodged = 0;
+    levelsCleared = 0;
+    resetLevel();
+  }
+
+  // --- Collision helpers ---
+  function rectsOverlap(a, b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x &&
+           a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+
+  function pointInRect(px, py, r) {
+    return px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+  }
+
+  // --- Check if player is on a ladder ---
+  function getLadderAt(px, py) {
+    for (const lad of ladders) {
+      if (px + player.w / 2 >= lad.x - 8 && px + player.w / 2 <= lad.x + 8) {
+        if (py + player.h >= lad.yTop && py <= lad.yBot) {
+          return lad;
+        }
+      }
+    }
+    return null;
+  }
+
+  // --- Get platform Y at a given x ---
+  function getPlatformY(x) {
+    for (let i = 0; i < PLATFORM_Y.length; i++) {
+      // Platforms span the full width (minus small gaps at edges)
+      if (x >= 0 && x <= W) {
+        return PLATFORM_Y[i];
+      }
+    }
+    return PLATFORM_Y[0];
+  }
+
+  // --- Check if standing on any platform ---
+  function checkPlatformCollision(px, py, pw, ph) {
+    const footY = py + ph;
+    for (let i = 0; i < PLATFORM_Y.length; i++) {
+      const pyi = PLATFORM_Y[i];
+      // Check if feet are at platform level and we're falling onto it
+      if (player.vy >= 0 && footY >= pyi && footY - player.vy <= pyi + 4) {
+        // Make sure player is within platform bounds
+        if (px + pw > 0 && px < W) {
+          return pyi;
+        }
+      }
+    }
+    return -1;
+  }
+
+  // --- Update ---
+  function update() {
+    if (state === STATE.DYING) {
+      player.deathTimer--;
+      for (const p of deathParticles) {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.2;
+        p.life--;
+      }
+      if (player.deathTimer <= 0) {
+        lives--;
+        if (lives <= 0) {
+          showEndCard(false);
+        } else {
+          resetLevel();
+        }
+      }
+      return;
+    }
+
+    if (state !== STATE.PLAYING) return;
+
+    // --- Player input ---
+    let moveX = 0;
+    let moveY = 0;
+
+    if (keys['ArrowLeft'] || keys['KeyA']) moveX = -1;
+    if (keys['ArrowRight'] || keys['KeyD']) moveX = 1;
+    if (keys['ArrowUp'] || keys['KeyW']) moveY = -1;
+    if (keys['ArrowDown'] || keys['KeyS']) moveY = 1;
+
+    // --- Ladder check ---
+    const lad = getLadderAt(player.x, player.y);
+    player.onLadder = lad !== null;
+
+    if (player.onLadder && moveY !== 0) {
+      // Climb ladder
+      player.vy = moveY * player.speed * 0.8;
+      player.vx = 0;
+      player.grounded = false;
+
+      // Constrain to ladder range
+      if (player.y + player.h < lad.yTop) {
+        player.y = lad.yTop - player.h;
+        player.vy = 0;
+      }
+      if (player.y > lad.yBot - player.h) {
+        player.y = lad.yBot - player.h;
+        player.vy = 0;
+        player.grounded = true;
+      }
+    } else if (player.onLadder && moveY === 0) {
+      // Standing on ladder — can move horizontally off
+      player.vy = 0;
+      if (moveX !== 0) {
+        player.vx = moveX * player.speed;
+      } else {
+        player.vx = 0;
+      }
+    } else {
+      // Normal ground movement
+      player.vx = moveX * player.speed;
+      // Apply gravity
+      player.vy += 0.45;
+      if (player.vy > 10) player.vy = 10;
+    }
+
+    // Apply velocity
+    player.x += player.vx;
+    player.y += player.vy;
+
+    // --- Platform collision ---
+    player.grounded = false;
+    const footY = player.y + player.h;
+
+    for (let i = 0; i < PLATFORM_Y.length; i++) {
+      const pyi = PLATFORM_Y[i];
+      // Check if player is landing on this platform
+      if (player.vy >= 0 && footY >= pyi && footY <= pyi + PLATFORM_H + 4) {
+        // Player must be over the platform
+        if (player.x + player.w > 0 && player.x < W) {
+          player.y = pyi - player.h;
+          player.vy = 0;
+          player.grounded = true;
+          break;
+        }
+      }
+    }
+
+    // Fall into the void
+    if (player.y > H + 40) {
+      startDeath();
+      return;
+    }
+
+    // --- Screen bounds ---
+    if (player.x < 0) player.x = 0;
+    if (player.x + player.w > W) player.x = W - player.w;
+
+    // --- Check win condition ---
+    if (player.y + player.h <= 70) {
+      // Reached the top!
+      levelsCleared++;
+      score += 1000 + level * 500;
+      level++;
+      showEndCard(true);
+      return;
+    }
+
+    // --- Facing direction ---
+    if (moveX !== 0) player.facing = moveX;
+
+    // --- Animation ---
+    if (Math.abs(player.vx) > 0.1) {
+      player.animTimer++;
+      if (player.animTimer > 8) {
+        player.animTimer = 0;
+        player.animFrame = (player.animFrame + 1) % 4;
+      }
+    } else {
+      player.animFrame = 0;
+      player.animTimer = 0;
+    }
+
+    // --- Invincibility ---
+    if (player.invincible > 0) player.invincible--;
+
+    // --- Barrel spawning ---
+    barrelSpawnTimer--;
+    if (barrelSpawnTimer <= 0) {
+      spawnBarrel();
+      barrelSpawnTimer = Math.max(30, BARREL_SPAWN_INTERVAL - level * 8) +
+        Math.floor(Math.random() * 30);
+    }
+
+    // --- Update barrels ---
+    for (let i = barrels.length - 1; i >= 0; i--) {
+      const b = barrels[i];
+
+      // Horizontal movement
+      b.x += b.vx;
+
+      // Check if barrel falls off its current platform
+      if (b.onPlatform >= 0) {
+        const platY = PLATFORM_Y[b.onPlatform];
+        // If barrel is past the edge
+        if (b.x - b.r < 0 || b.x + b.r > W) {
+          // Fall to next platform
+          b.onPlatform--;
+          if (b.onPlatform < 0) {
+            // Fell off bottom — remove
+            barrels.splice(i, 1);
+            barrelsDodged++;
+            score += 25;
+            continue;
+          }
+          // Drop down
+          b.y = platY + 20;
+          // Randomize direction for next platform
+          b.vx = (Math.random() > 0.5 ? 1 : -1) * (BARREL_SPEED + Math.random() * 1.5);
+        } else {
+          // Stay on platform surface
+          b.y = PLATFORM_Y[b.onPlatform] - b.r;
+        }
+      }
+
+      // Remove if off screen
+      if (b.y > H + 50 || b.x < -50 || b.x > W + 50) {
+        barrels.splice(i, 1);
+        barrelsDodged++;
+        score += 10;
+        continue;
+      }
+
+      // --- Barrel vs Player collision ---
+      if (state === STATE.PLAYING && player.invincible <= 0) {
+        const dx = (player.x + player.w / 2) - b.x;
+        const dy = (player.y + player.h / 2) - b.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < b.r + Math.min(player.w, player.h) / 2) {
+          startDeath();
+          return;
+        }
+      }
+    }
+
+    // --- Score increment for survival ---
+    if (Math.floor(Date.now() / 200) !== Math.floor((Date.now() - 16) / 200)) {
+      score += 1;
+    }
+  }
+
+  // --- Draw pixel-art player ---
+  function drawPlayer() {
+    if (state === STATE.DYING && Math.floor(player.deathTimer / 6) % 2 === 0) return;
+    if (player.invincible > 0 && Math.floor(player.invincible / 4) % 2 === 0) return;
+
+    const px = Math.floor(player.x);
+    const py = Math.floor(player.y);
+    const pw = Math.floor(player.w);
+    const ph = Math.floor(player.h);
+
+    ctx.save();
+    if (player.facing === -1) {
+      ctx.translate(px + pw, py);
+      ctx.scale(-1, 1);
+      ctx.translate(0, 0);
+    } else {
+      ctx.translate(px, py);
+    }
+
+    const s = 2; // pixel size
+    const ox = 0;
+    const oy = 0;
+
+    // --- Draw pixel-art character ---
+    ctx.fillStyle = '#ffcc44'; // skin
+    // Head
+    ctx.fillRect(ox + 6, oy + 0, 8, 8);
+    // Eyes
+    ctx.fillStyle = '#000';
+    ctx.fillRect(ox + 8, oy + 2, 2, 2);
+    ctx.fillRect(ox + 12, oy + 2, 2, 2);
+
+    // Hat / helmet
+    ctx.fillStyle = '#e04040';
+    ctx.fillRect(ox + 4, oy - 4, 14, 6);
+    ctx.fillRect(ox + 6, oy - 6, 10, 2);
+
+    // Body
+    ctx.fillStyle = '#3377cc';
+    ctx.fillRect(ox + 6, oy + 8, 10, 10);
+
+    // Belt
+    ctx.fillStyle = '#8B4513';
+    ctx.fillRect(ox + 6, oy + 14, 10, 2);
+
+    // Legs with animation
+    ctx.fillStyle = '#224488';
+    const legOff = player.animFrame % 2 === 0 ? 0 : 2;
+    ctx.fillRect(ox + 6, oy + 16, 4, 8 + legOff);
+    ctx.fillRect(ox + 12, oy + 16, 4, 8 - legOff);
+
+    // Arms
+    ctx.fillStyle = '#ffcc44';
+    const armOff = player.animFrame % 2 === 0 ? 0 : 2;
+    ctx.fillRect(ox + 2, oy + 8 - armOff, 4, 8);
+    ctx.fillRect(ox + 16, oy + 8 + armOff, 4, 8);
+
+    // Shoes
+    ctx.fillStyle = '#553311';
+    ctx.fillRect(ox + 5, oy + 24 + legOff, 6, 4);
+    ctx.fillRect(ox + 11, oy + 24 - legOff, 6, 4);
+
+    ctx.restore();
+  }
+
+  // --- Draw pixel-art barrel ---
+  function drawBarrel(b) {
+    const bx = Math.floor(b.x - b.r);
+    const by = Math.floor(b.y - b.r);
+    const s = b.r * 2;
+
+    // Barrel body
+    ctx.fillStyle = '#8B4513';
+    ctx.fillRect(bx + 2, by + 2, s - 4, s - 4);
+
+    // Barrel rings
+    ctx.fillStyle = '#654321';
+    ctx.fillRect(bx, by + 4, s, 3);
+    ctx.fillRect(bx, by + s - 7, s, 3);
+
+    // Highlight
+    ctx.fillStyle = '#A0522D';
+    ctx.fillRect(bx + 4, by + 7, 4, s - 14);
+
+    // Rolling indicator
+    const rollFrame = Math.floor(Date.now() / 100) % 4;
+    ctx.fillStyle = '#4a2f0a';
+    if (rollFrame === 0) {
+      ctx.fillRect(bx + 8, by - 2, 4, 2);
+      ctx.fillRect(bx + 8, by + s, 4, 2);
+    } else if (rollFrame === 1) {
+      ctx.fillRect(bx + 4, by - 1, 2, 4);
+      ctx.fillRect(bx + s - 6, by + s - 3, 2, 4);
+    } else if (rollFrame === 2) {
+      ctx.fillRect(bx + 8, by - 2, 4, 2);
+      ctx.fillRect(bx + 8, by + s, 4, 2);
+    } else {
+      ctx.fillRect(bx + s - 2, by - 1, 2, 4);
+      ctx.fillRect(bx + 4, by + s - 3, 2, 4);
+    }
+  }
+
+  // --- Draw ladders ---
+  function drawLadders() {
+    for (const lad of ladders) {
+      const lx = lad.x;
+      // Rails
+      ctx.fillStyle = '#8B6914';
+      ctx.fillRect(lx - 4, lad.yTop, 3, lad.yBot - lad.yTop);
+      ctx.fillRect(lx + 1, lad.yTop, 3, lad.yBot - lad.yTop);
+
+      // Rungs
+      ctx.fillStyle = '#A0822A';
+      for (let y = lad.yTop + 8; y < lad.yBot; y += 12) {
+        ctx.fillRect(lx - 4, y, 8, 3);
+      }
+    }
+  }
+
+  // --- Draw platforms ---
+  function drawPlatforms() {
+    for (let i = 0; i < PLATFORM_Y.length; i++) {
+      const y = PLATFORM_Y[i];
+
+      // Platform body
+      ctx.fillStyle = '#4a3728';
+      ctx.fillRect(0, y, W, PLATFORM_H);
+
+      // Top edge highlight
+      ctx.fillStyle = '#6b5040';
+      ctx.fillRect(0, y, W, 3);
+
+      // Bottom shadow
+      ctx.fillStyle = '#2a1f14';
+      ctx.fillRect(0, y + PLATFORM_H - 2, W, 2);
+
+      // Girder pattern
+      ctx.fillStyle = '#3a2a1c';
+      for (let x = 0; x < W; x += 48) {
+        ctx.fillRect(x, y + 4, 32, PLATFORM_H - 8);
+      }
+
+      // Rivets
+      ctx.fillStyle = '#5a4a3a';
+      for (let x = 16; x < W; x += 48) {
+        ctx.fillRect(x, y + 2, 4, 2);
+        ctx.fillRect(x, y + PLATFORM_H - 4, 4, 2);
+      }
+    }
+  }
+
+  // --- Draw background ---
+  function drawBackground() {
+    // Sky gradient
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, '#0a0a2e');
+    grad.addColorStop(0.4, '#141440');
+    grad.addColorStop(0.7, '#1a1030');
+    grad.addColorStop(1, '#0a0a0a');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Stars
+    ctx.fillStyle = '#ffffff';
+    const starSeed = 42;
+    for (let i = 0; i < 60; i++) {
+      const sx = ((i * 137 + starSeed) % W);
+      const sy = ((i * 251 + starSeed * 3) % (PLATFORM_Y[3] - 20));
+      const twinkle = Math.sin(Date.now() * 0.002 + i) * 0.5 + 0.5;
+      ctx.globalAlpha = 0.3 + twinkle * 0.7;
+      ctx.fillRect(sx, sy, 2, 2);
+    }
+    ctx.globalAlpha = 1;
+
+    // Construction beams / girders background
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(W - 20, 0, 10, PLATFORM_Y[3]);
+    ctx.fillRect(10, 0, 10, PLATFORM_Y[3]);
+
+    // Horizontal beams
+    for (let i = 0; i < PLATFORM_Y.length; i++) {
+      const y = PLATFORM_Y[i] - 80;
+      if (y > 0) {
+        ctx.fillStyle = '#15152a';
+        ctx.fillRect(0, y, 20, 6);
+        ctx.fillRect(W - 20, y, 20, 6);
+      }
+    }
+  }
+
+  // --- Draw the goal / Princess area ---
+  function drawGoal() {
+    const gx = W / 2 - 20;
+    const gy = 30;
+
+    // Princess Pauline / goal marker
+    ctx.fillStyle = '#ff66aa';
+    ctx.fillRect(gx + 6, gy, 8, 8); // head
+    ctx.fillRect(gx + 8, gy + 2, 2, 2); // eye
+    ctx.fillRect(gx + 12, gy + 2, 2, 2); // eye
+
+    // Hair
+    ctx.fillStyle = '#ff3388';
+    ctx.fillRect(gx + 2, gy - 4, 16, 6);
+    ctx.fillRect(gx, gy - 2, 4, 4);
+    ctx.fillRect(gx + 16, gy - 2, 4, 4);
+
+    // Dress
+    ctx.fillStyle = '#ff4488';
+    ctx.fillRect(gx + 4, gy + 8, 12, 16);
+
+    // Heart animation
+    const heartPhase = Math.sin(Date.now() * 0.005) * 0.5 + 0.5;
+    ctx.fillStyle = `rgba(255, 100, 150, ${0.4 + heartPhase * 0.6})`;
+    ctx.fillRect(gx - 6, gy - 8, 26, 6);
+    ctx.fillRect(gx - 2, gy - 12, 18, 4);
+
+    // "HELP!" sign
+    ctx.fillStyle = '#fff';
+    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.fillText('HELP!', gx - 14, gy - 18);
+  }
+
+  // --- Draw HUD ---
+  function drawHUD() {
+    ctx.fillStyle = '#fff';
+    ctx.font = '10px "Press Start 2P", monospace';
+
+    // Score
+    ctx.fillText('SCORE', 12, 16);
+    ctx.fillStyle = '#ffcc44';
+    ctx.fillText(String(score).padStart(6, '0'), 12, 30);
+
+    // Lives
+    ctx.fillStyle = '#fff';
+    ctx.fillText('LIVES', W - 80, 16);
+    ctx.fillStyle = '#ff4444';
+    for (let i = 0; i < lives; i++) {
+      // Heart
+      const hx = W - 80 + i * 22;
+      ctx.fillRect(hx, 20, 8, 8);
+      ctx.fillRect(hx - 4, 24, 16, 8);
+      ctx.fillRect(hx - 2, 22, 12, 4);
+    }
+
+    // Level
+    ctx.fillStyle = '#fff';
+    ctx.fillText('LVL', W / 2 - 20, 16);
+    ctx.fillStyle = '#33ff66';
+    ctx.fillText(String(level), W / 2 + 8, 16);
+  }
+
+  // --- Draw title screen ---
+  function drawTitle() {
+    drawBackground();
+    drawPlatforms();
+    drawGoal();
+
+    // Title
+    ctx.fillStyle = '#ffcc44';
+    ctx.font = '22px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('LADDER', W / 2, 200);
+    ctx.fillText('LEGION', W / 2, 230);
+
+    // Subtitle
+    ctx.fillStyle = '#ff6644';
+    ctx.font = '9px "Press Start 2P", monospace';
+    ctx.fillText('A DONKEY KONG STYLE GAME', W / 2, 255);
+
+    // Pixel art barrel decoration
+    ctx.fillStyle = '#8B4513';
+    const bx = W / 2 - 15;
+    const by = 290;
+    ctx.fillRect(bx, by, 30, 30);
+    ctx.fillStyle = '#654321';
+    ctx.fillRect(bx - 3, by + 5, 36, 4);
+    ctx.fillRect(bx - 3, by + 21, 36, 4);
+
+    // Instructions
+    ctx.fillStyle = '#fff';
+    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.fillText('USE ARROW KEYS OR WASD', W / 2, 350);
+    ctx.fillText('CLIMB LADDERS WITH UP/DOWN', W / 2, 368);
+    ctx.fillText('DODGE THE BARRELS!', W / 2, 386);
+
+    // Blink prompt
+    if (Math.floor(Date.now() / 600) % 2 === 0) {
+      ctx.fillStyle = '#33ff66';
+      ctx.fillText('PRESS ENTER TO START', W / 2, 430);
+    }
+
+    // Bottom decorative text
+    ctx.fillStyle = '#555';
+    ctx.font = '6px "Press Start 2P", monospace';
+    ctx.fillText('BUILT BY CHRIS LUND — FOUNDER, HERMTICA', W / 2, 500);
+
+    ctx.textAlign = 'left';
+  }
+
+  // --- Main render ---
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    if (state === STATE.TITLE) {
+      drawTitle();
+      return;
+    }
+
+    drawBackground();
+    drawLadders();
+    drawPlatforms();
+    drawGoal();
+
+    // Draw barrels
+    for (const b of barrels) {
+      drawBarrel(b);
+    }
+
+    // Draw player
+    drawPlayer();
+
+    // Death particles
+    for (const p of deathParticles) {
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = p.life / 60;
+      ctx.fillRect(Math.floor(p.x), Math.floor(p.y), 3, 3);
+    }
+    ctx.globalAlpha = 1;
+
+    drawHUD();
+
+    // Game over text in-game (before terminal overlay)
+    if (state === STATE.GAMEOVER) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#ff4444';
+      ctx.font = '16px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('GAME OVER', W / 2, H / 2);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  // --- Show terminal end card ---
+  function showEndCard(won) {
+    state = won ? STATE.WIN : STATE.GAMEOVER;
+    const overlay = document.getElementById('terminal-overlay');
+    const titleEl = document.getElementById('end-title');
+    const scoreEl = document.getElementById('end-score');
+    const rankEl = document.getElementById('end-rank');
+    const barrelEl = document.getElementById('end-barrels');
+    const levelEl = document.getElementById('end-levels');
+
+    titleEl.textContent = won
+      ? '│      YOU WIN!               │'
+      : '│      GAME OVER              │';
+
+    scoreEl.textContent = score;
+
+    // Determine rank
+    let rank;
+    if (won) rank = 'LADDER LEGEND';
+    else if (score >= 5000) rank = 'BARREL BOSS';
+    else if (score >= 3000) rank = 'PLATFORM PRO';
+    else if (score >= 1500) rank = 'LADDER CLIMBER';
+    else if (score >= 500) rank = 'ROOKIE RUNNER';
+    else rank = 'BARREL BAIT';
+    rankEl.textContent = rank;
+
+    barrelEl.textContent = barrelsDodged;
+    levelEl.textContent = levelsCleared;
+
+    overlay.classList.add('visible');
+  }
+
+  // --- Hide terminal overlay ---
+  function hideEndCard() {
+    document.getElementById('terminal-overlay').classList.remove('visible');
+  }
+
+  // --- Handle Enter key for state transitions ---
+  window.addEventListener('keydown', function handler(e) {
+    if (e.key === 'Enter') {
+      if (state === STATE.TITLE) {
+        resetGame();
+        hideEndCard();
+      } else if (state === STATE.GAMEOVER || state === STATE.WIN) {
+        resetGame();
+        hideEndCard();
+      }
+    }
+  });
+
+  // --- Game loop ---
+  function gameLoop() {
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+  }
+
+  // Start
+  resetGame();
+  state = STATE.TITLE;
+  gameLoop();
+
+  console.log('🪜 Ladder Legion ready!');
+  console.log('Built by Chris Lund — Founder, Hermtica');
+  console.log('github.com/realMNohgee | hermtica.com');
+})();
+</script>
+</body>
+</html>
