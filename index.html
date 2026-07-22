@@ -197,7 +197,12 @@
     animTimer: 0,
     deathTimer: 0,
     invincible: 0,
+    hasHammer: false, hammerTimer: 0,
   };
+
+  // --- Hammer power-up ---
+  let hammerPickup = null;
+  const HAMMER_DURATION = 300; // frames (~5s)
 
   // --- Platforms ---
   // y positions for each platform floor
@@ -271,7 +276,10 @@
     player.vy = 0;
     player.grounded = false;
     player.onLadder = false;
-    player.invincible = 60; // brief invincibility after respawn
+    player.invincible = 60;
+    player.hasHammer = false;
+    player.hammerTimer = 0;
+    hammerPickup = null;
   }
 
   // --- Reset level ---
@@ -375,6 +383,12 @@
     if (keys['ArrowUp'] || keys['KeyW']) moveY = -1;
     if (keys['ArrowDown'] || keys['KeyS']) moveY = 1;
 
+    // --- Jump ---
+    if ((keys['Space'] || keys['KeyJ']) && player.grounded && !player.onLadder) {
+      player.vy = player.jumpPower;
+      player.grounded = false;
+    }
+
     // --- Ladder check ---
     const lad = getLadderAt(player.x, player.y);
     player.onLadder = lad !== null;
@@ -471,7 +485,30 @@
     // --- Invincibility ---
     if (player.invincible > 0) player.invincible--;
 
-    // --- Barrel spawning ---
+    // --- Hammer spawning ---
+    if (!hammerPickup && !player.hasHammer && Math.random() < 0.002) {
+      const platIdx = Math.floor(Math.random() * 3); // random platform (not top)
+      hammerPickup = {
+        x: 60 + Math.random() * (W - 120),
+        y: PLATFORM_Y[platIdx] - 24,
+        w: 18, h: 18,
+      };
+    }
+
+    // --- Hammer pickup check ---
+    if (hammerPickup && rectsOverlap(player, hammerPickup)) {
+      hammerPickup = null;
+      player.hasHammer = true;
+      player.hammerTimer = HAMMER_DURATION;
+    }
+
+    // --- Hammer timer ---
+    if (player.hasHammer) {
+      player.hammerTimer--;
+      if (player.hammerTimer <= 0) {
+        player.hasHammer = false;
+      }
+    }
     barrelSpawnTimer--;
     if (barrelSpawnTimer <= 0) {
       spawnBarrel();
@@ -523,9 +560,26 @@
         const dx = (player.x + player.w / 2) - b.x;
         const dy = (player.y + player.h / 2) - b.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < b.r + Math.min(player.w, player.h) / 2) {
-          startDeath();
-          return;
+        const hitRange = b.r + Math.min(player.w, player.h) / 2 + (player.hasHammer ? 16 : 0);
+        if (dist < hitRange) {
+          if (player.hasHammer) {
+            // SMASH! Destroy barrel with particles
+            for (let p = 0; p < 8; p++) {
+              deathParticles.push({
+                x: b.x, y: b.y,
+                vx: (Math.random() - 0.5) * 8,
+                vy: (Math.random() - 0.5) * 8 - 4,
+                life: 20 + Math.random() * 15,
+                color: ['#ff8800', '#ffaa00', '#ff6600', '#cc4400'][Math.floor(Math.random() * 4)],
+              });
+            }
+            barrels.splice(i, 1);
+            score += 50;
+            continue;
+          } else {
+            startDeath();
+            return;
+          }
         }
       }
     }
@@ -786,6 +840,14 @@
     ctx.fillText('LVL', W / 2 - 20, 16);
     ctx.fillStyle = '#33ff66';
     ctx.fillText(String(level), W / 2 + 8, 16);
+
+    // Hammer indicator
+    if (player.hasHammer) {
+      const secLeft = Math.ceil(player.hammerTimer / 60);
+      ctx.fillStyle = '#ffaa00';
+      ctx.font = '7px \"Press Start 2P\", monospace';
+      ctx.fillText('🔨 ' + secLeft + 's', W / 2 - 8, 44);
+    }
   }
 
   // --- Draw title screen ---
@@ -857,6 +919,40 @@
 
     // Draw player
     drawPlayer();
+
+    // Draw hammer on player
+    if (player.hasHammer) {
+      const px = Math.floor(player.x);
+      const py = Math.floor(player.y);
+      // Hammer handle
+      ctx.fillStyle = '#8B4513';
+      ctx.fillRect(px + player.w + 2, py - 4, 3, 16);
+      // Hammer head
+      ctx.fillStyle = '#888';
+      ctx.fillRect(px + player.w - 2, py - 8, 12, 8);
+      ctx.fillStyle = '#aaa';
+      ctx.fillRect(px + player.w - 1, py - 7, 10, 3);
+      // Glow
+      ctx.fillStyle = `rgba(255, 200, 50, ${0.3 + Math.sin(Date.now() * 0.01) * 0.2})`;
+      ctx.fillRect(px + player.w - 4, py - 10, 16, 4);
+    }
+
+    // Draw hammer pickup
+    if (hammerPickup) {
+      const hx = hammerPickup.x;
+      const hy = hammerPickup.y;
+      // Glow
+      ctx.fillStyle = `rgba(255, 200, 50, ${0.3 + Math.sin(Date.now() * 0.008) * 0.3})`;
+      ctx.fillRect(hx - 4, hy - 4, hammerPickup.w + 8, hammerPickup.h + 8);
+      // Handle
+      ctx.fillStyle = '#8B4513';
+      ctx.fillRect(hx + 7, hy + 4, 4, 14);
+      // Head
+      ctx.fillStyle = '#aaa';
+      ctx.fillRect(hx, hy + 2, 18, 10);
+      ctx.fillStyle = '#ccc';
+      ctx.fillRect(hx + 1, hy + 3, 16, 4);
+    }
 
     // Death particles
     for (const p of deathParticles) {
