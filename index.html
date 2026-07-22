@@ -531,19 +531,30 @@
           // Fall to next platform
           b.onPlatform--;
           if (b.onPlatform < 0) {
-            // Fell off bottom — remove
             barrels.splice(i, 1);
             barrelsDodged++;
             score += 25;
             continue;
           }
-          // Drop down
           b.y = platY + 20;
-          // Randomize direction for next platform
           b.vx = (Math.random() > 0.5 ? 1 : -1) * (BARREL_SPEED + Math.random() * 1.5);
         } else {
-          // Stay on platform surface
           b.y = PLATFORM_Y[b.onPlatform] - b.r;
+
+          // Randomly go down a ladder
+          if (b.onPlatform > 0 && Math.random() < 0.008) {
+            const ladBelow = ladders.filter(l => 
+              l.yTop === PLATFORM_Y[b.onPlatform - 1] && 
+              l.yBot === platY &&
+              Math.abs(l.x - b.x) < 30
+            );
+            if (ladBelow.length > 0) {
+              b.onPlatform--;
+              b.y = platY + 20;
+              b.x = ladBelow[0].x;
+              b.vx = (Math.random() > 0.5 ? 1 : -1) * (BARREL_SPEED + Math.random());
+            }
+          }
         }
       }
 
@@ -920,21 +931,24 @@
     // Draw player
     drawPlayer();
 
-    // Draw hammer on player
+    // Draw hammer on player (swings up and down like OG Donkey Kong)
     if (player.hasHammer) {
       const px = Math.floor(player.x);
       const py = Math.floor(player.y);
-      // Hammer handle
+      const swing = Math.sin(Date.now() * 0.02) * 12; // oscillating swing offset
+      const hammerX = px + player.w + 2;
+      const hammerTop = py - 12 + swing;
+      // Handle
       ctx.fillStyle = '#8B4513';
-      ctx.fillRect(px + player.w + 2, py - 4, 3, 16);
-      // Hammer head
-      ctx.fillStyle = '#888';
-      ctx.fillRect(px + player.w - 2, py - 8, 12, 8);
-      ctx.fillStyle = '#aaa';
-      ctx.fillRect(px + player.w - 1, py - 7, 10, 3);
-      // Glow
-      ctx.fillStyle = `rgba(255, 200, 50, ${0.3 + Math.sin(Date.now() * 0.01) * 0.2})`;
-      ctx.fillRect(px + player.w - 4, py - 10, 16, 4);
+      ctx.fillRect(hammerX, hammerTop + 8, 3, 16);
+      // Head
+      ctx.fillStyle = '#666';
+      ctx.fillRect(hammerX - 4, hammerTop, 12, 10);
+      ctx.fillStyle = '#999';
+      ctx.fillRect(hammerX - 3, hammerTop + 1, 10, 4);
+      // Smash glow
+      ctx.fillStyle = `rgba(255, 200, 50, ${0.3 + Math.abs(Math.sin(Date.now() * 0.02)) * 0.3})`;
+      ctx.fillRect(hammerX - 6, hammerTop - 2, 16, 4);
     }
 
     // Draw hammer pickup
